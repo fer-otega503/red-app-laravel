@@ -24,13 +24,18 @@ class UserController extends Controller
      */
     public function store(Request $request)
     {
+        // 1. Validamos solo lo que la app de Android nos puede mandar
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
+            'email' => 'nullable|string|email|max:255|unique:users',
             'phone_number' => 'required|string|max:255',
         ]);
 
+        // 2. Le inyectamos una contraseña genérica por defecto 
+        // para que la base de datos (MySQL) no nos tire error de "campo vacío"
+        $validated['password'] = bcrypt('password123');
+
+        // 3. Creamos el usuario
         $user = User::create($validated);
 
         return UserResource::make($user);
