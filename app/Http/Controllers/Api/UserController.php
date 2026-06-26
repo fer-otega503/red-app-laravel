@@ -128,4 +128,13 @@ class UserController extends Controller
             'image' => $this->image ? $this->image->url : null, 
         ];
     }   
+
+    public function destroy(User $user): JsonResponse
+    {
+        $user->delete();
+
+        return response()->json(['message' => 'Usuario eliminado correctamente']);
+    }
 }
+
+
