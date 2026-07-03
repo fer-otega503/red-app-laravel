@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -25,10 +26,16 @@ class User extends Authenticatable
         'phone_number',
     ];
 
-    //Un usuario puede tener una imagen (polimórfico simple)
-    public function image(): MorphOne
+    // Un usuario puede tener múltiples imágenes
+    public function images(): MorphMany
     {
-        return $this->morphOne(Image::class, 'imageable');
+        return $this->morphMany(Image::class, 'imageable');
+    }
+
+    // Obtener la imagen más reciente
+    public function latestImage(): MorphOne
+    {
+        return $this->morphOne(Image::class, 'imageable')->latestOfMany();
     }
 
     /**

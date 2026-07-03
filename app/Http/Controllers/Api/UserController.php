@@ -19,8 +19,8 @@ class UserController extends Controller
      */
     public function index()
     {
-        // El 'with' carga la relación polimórfica automáticamente
-        $users = User::with('image')->get();
+        // Cargamos únicamente la imagen más reciente para el listado general
+        $users = User::with('latestImage')->get();
         
         return UserResource::collection($users);
     }
@@ -34,35 +34,55 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|string|email|max:255|unique:users',
             'phone_number' => 'required|string|max:255',
-            // Agregamos la validación de la imagen (ajusta según lo que mandes)
-            'image' => 'nullable' 
+            'images' => 'nullable|array' // Validamos que sea un arreglo de cadenas
         ]);
 
         $validated['password'] = bcrypt('password123');
 
-        // 1. Creamos al usuario primero para tener su ID
-        $user = User::create($validated);
+        // 1. Creamos al usuario primero para tener su ID (ignorando el arreglo 'images')
+        $user = User::create(collect($validated)->except('images')->toArray());
 
-        // 2. Procesamos la imagen polimórfica
-        if ($request->has('image') && $request->image != null) {
-            // Lógica para guardar el archivo físico en storage (depende de cómo lo mandes)
-            // $path = ... 
-            
-            // 3. Creamos la relación polimórfica
-            $user->image()->create([
-                'url' => 'aqui_va_el_path_de_la_imagen.jpg' // Ajusta al nombre de tu columna
-            ]);
+        // 2. Procesamos las imágenes polimórficas
+        if ($request->has('images') && is_array($request->images)) {
+            foreach ($request->images as $base64Image) {
+                if ($base64Image) {
+                    $user->images()->create([
+                        'url' => $base64Image
+                    ]);
+                }
+            }
         }
 
-        return UserResource::make($user);
+        // 3. Lógica de poda (FIFO con límite de 4 imágenes) por si envían demasiadas en la creación
+        $maxImages = 4;
+        $totalImages = $user->images()->count();
+
+        if ($totalImages > $maxImages) {
+            $difference = $totalImages - $maxImages;
+            
+            // Obtenemos los IDs de las imágenes más antiguas (las primeras en procesarse en el foreach)
+            $oldestImagesIds = $user->images()
+                ->oldest() // equivalente a orderBy('created_at', 'asc')
+                ->limit($difference)
+                ->pluck('id');
+
+            // Las eliminamos
+            $user->images()->whereIn('id', $oldestImagesIds)->delete();
+        }
+
+        // 4. Retornamos el recurso cargando la galería resultante
+        return UserResource::make($user->load('images'));
     }
 
     /**
      * Display the specified resource.
      */
-    public function show(User $user)
+    public function show($id)
     {
-        return UserResource::make($user);
+        // Cargamos TODA la galería de imágenes del usuario, sin ningún límite
+        $user = User::with('images')->findOrFail($id);
+        
+        return new UserResource($user);
     }
 
     /**
@@ -80,37 +100,46 @@ class UserController extends Controller
             'email' => 'sometimes|nullable|string|email|max:255|unique:users,email,' . $user->id,
             'password' => 'sometimes|nullable|string|min:8',
             'phone_number' => 'sometimes|required|string|max:255', 
-            'image' => 'nullable' // Permitimos que la imagen venga en el request
+            'images' => 'sometimes|nullable|array' // Validamos que sea un arreglo de imágenes
         ]);
 
         if (isset($validated['password'])) {
             $validated['password'] = bcrypt($validated['password']);
         }
 
-        // Actualizamos los datos base del usuario
-        $user->update($validated);
+        // Actualizamos los datos base del usuario (ignorando 'images' para la tabla users)
+        $user->update(collect($validated)->except('images')->toArray());
 
-        // Magia polimórfica para la actualización
-        if ($request->has('image') && $request->image != null) {
-            
-            // OJO: Si mandas un archivo físico o Base64, aquí procesas el nombre/ruta
-            $valorImagen = $request->image; 
-
-            if ($user->image) {
-                // Si ya existe su registro polimórfico, lo actualizamos
-                $user->image()->update([
-                    'url' => $valorImagen // Cambia 'url' por el nombre de tu columna (path, src, etc.)
-                ]);
-            } else {
-                // Si no tenía imagen previa, creamos la relación
-                $user->image()->create([
-                    'url' => $valorImagen
-                ]);
+        // 1. Carga Acumulativa
+        if ($request->has('images') && is_array($request->images)) {
+            foreach ($request->images as $base64Image) {
+                if ($base64Image) {
+                    $user->images()->create([
+                        'url' => $base64Image
+                    ]);
+                }
             }
         }
 
-        // Refrescamos el usuario para que el recurso devuelva la nueva imagen
-        return UserResource::make($user->load('image'));
+        // 2. Lógica de poda (FIFO con límite máximo, por ejemplo: 4 imágenes)
+        $maxImages = 4;
+        $totalImages = $user->images()->count();
+
+        if ($totalImages > $maxImages) {
+            $difference = $totalImages - $maxImages;
+            
+            // Obtenemos los IDs de las imágenes más antiguas
+            $oldestImagesIds = $user->images()
+                ->oldest() // equivalente a orderBy('created_at', 'asc')
+                ->limit($difference)
+                ->pluck('id');
+
+            // Las eliminamos
+            $user->images()->whereIn('id', $oldestImagesIds)->delete();
+        }
+
+        // 3. Retornamos el recurso cargando la galería resultante
+        return UserResource::make($user->load('images'));
     }
 
     
@@ -129,11 +158,19 @@ class UserController extends Controller
         ];
     }   
 
-    public function destroy(User $user): JsonResponse
+    public function destroy($id): JsonResponse
     {
+        // Buscamos al usuario o lanzamos 404
+        $user = User::findOrFail($id);
+
+        // Eliminamos todos los registros huérfanos de la relación polimórfica (Base64)
+        $user->images()->delete();
+
+        // Eliminamos al usuario
         $user->delete();
 
-        return response()->json(['message' => 'Usuario eliminado correctamente']);
+        // Retornamos respuesta exitosa con código 200
+        return response()->json(['message' => 'Usuario eliminado correctamente'], 200);
     }
 }
 

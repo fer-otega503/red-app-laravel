@@ -16,13 +16,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        //User::factory(20)->create();
-        $users = User::factory(5)->create()->each(function ($user) {
-            Image::factory()->create([
-                'imageable_id' => $user->id,
-                'imageable_type' => User::class,
-            ]);
-        });
+        $this->call([
+            UserImageSeeder::class,
+        ]);
 
     }
 }

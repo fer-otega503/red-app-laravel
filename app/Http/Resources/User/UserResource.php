@@ -21,7 +21,8 @@ class UserResource extends JsonResource
             'phone_number' => $this->phone_number,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
-            'image' => $this->image ? $this->image->url : null,
+            'latest_image' => $this->whenLoaded('latestImage', fn() => $this->latestImage?->url),
+            'images' => $this->whenLoaded('images', fn() => $this->images->pluck('url')),
         ];
     }
 }
